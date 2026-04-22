@@ -12,6 +12,7 @@ import org.springframework.context.annotation.Lazy;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.time.LocalDate;
 import java.time.YearMonth;
 import java.util.ArrayList;
@@ -27,14 +28,33 @@ public class BillingServiceImpl implements BillingService {
     private final PhieuThuRepository phieuThuRepository;
     private final com.trohub.backend.service.BillingService billingServiceProxy;
     private final com.trohub.backend.repository.HopDongRepository hopDongRepository;
+    private final NguoiThueRepository nguoiThueRepository;
+    private final PhongRepository phongRepository;
+    private final ToaNhaRepository toaNhaRepository;
+    private final ChuTroRepository chuTroRepository;
 
-    public BillingServiceImpl(ChiSoRepository chiSoRepository, DonGiaRepository donGiaRepository, HoaDonRepository hoaDonRepository, PhieuThuRepository phieuThuRepository, @Lazy com.trohub.backend.service.BillingService billingServiceProxy, com.trohub.backend.repository.HopDongRepository hopDongRepository) {
+    public BillingServiceImpl(
+            ChiSoRepository chiSoRepository,
+            DonGiaRepository donGiaRepository,
+            HoaDonRepository hoaDonRepository,
+            PhieuThuRepository phieuThuRepository,
+            @Lazy com.trohub.backend.service.BillingService billingServiceProxy,
+            com.trohub.backend.repository.HopDongRepository hopDongRepository,
+            NguoiThueRepository nguoiThueRepository,
+            PhongRepository phongRepository,
+            ToaNhaRepository toaNhaRepository,
+            ChuTroRepository chuTroRepository
+    ) {
         this.chiSoRepository = chiSoRepository;
         this.donGiaRepository = donGiaRepository;
         this.hoaDonRepository = hoaDonRepository;
         this.phieuThuRepository = phieuThuRepository;
         this.billingServiceProxy = billingServiceProxy;
         this.hopDongRepository = hopDongRepository;
+        this.nguoiThueRepository = nguoiThueRepository;
+        this.phongRepository = phongRepository;
+        this.toaNhaRepository = toaNhaRepository;
+        this.chuTroRepository = chuTroRepository;
     }
 
     @Override
@@ -99,7 +119,7 @@ public class BillingServiceImpl implements BillingService {
     private InvoiceDto doTaoDraft(Long tenantId, int year, int month) {
         List<HoaDon> existing = hoaDonRepository.findByTenantIdAndPeriodYearAndPeriodMonth(tenantId, year, month);
         if (existing != null && !existing.isEmpty()) {
-            return BillingMapper.toDto(existing.get(0));
+            return enrichInvoiceDto(BillingMapper.toDto(existing.get(0)));
         }
         HoaDon hoaDon = HoaDon.builder()
                 .tenantId(tenantId)
@@ -111,17 +131,34 @@ public class BillingServiceImpl implements BillingService {
                 .status(InvoiceStatus.DRAFT)
                 .build();
         HoaDon saved = hoaDonRepository.save(hoaDon);
-        return BillingMapper.toDto(saved);
+        return enrichInvoiceDto(BillingMapper.toDto(saved));
     }
 
     private InvoiceDto doCombineSubInvoices(Long tenantId, int year, int month) {
         // if invoice exists, return it
         List<HoaDon> existing = hoaDonRepository.findByTenantIdAndPeriodYearAndPeriodMonth(tenantId, year, month);
         if (existing != null && !existing.isEmpty()) {
-            return BillingMapper.toDto(existing.get(0));
+            return enrichInvoiceDto(BillingMapper.toDto(existing.get(0)));
         }
 
         List<ChiSoDienNuoc> readings = chiSoRepository.findByTenantIdAndPeriodYearAndPeriodMonth(tenantId, year, month);
+        Optional<com.trohub.backend.modal.HopDong> activeContract = findContractForTenantInPeriod(tenantId, year, month);
+        List<Long> roomTenantIds = activeContract
+                .map(h -> activeTenantIdsInRoom(h.getPhongId(), year, month))
+                .orElse(java.util.List.of(tenantId));
+        int shareCount = Math.max(1, roomTenantIds.size());
+
+        if ((readings == null || readings.isEmpty()) && activeContract.isPresent()) {
+            for (Long roommateId : roomTenantIds) {
+                List<ChiSoDienNuoc> candidate = chiSoRepository.findByTenantIdAndPeriodYearAndPeriodMonth(roommateId, year, month);
+                if (candidate != null && !candidate.isEmpty()) {
+                    readings = candidate;
+                    break;
+                }
+            }
+        }
+        if (readings == null) readings = java.util.List.of();
+
         HoaDon hoaDon = HoaDon.builder()
                 .tenantId(tenantId)
                 .periodYear(year)
@@ -139,7 +176,8 @@ public class BillingServiceImpl implements BillingService {
             int prevYear = year;
             if (prevMonth == 0) { prevMonth = 12; prevYear = year - 1; }
             Long chiSoBatDau = null;
-            List<ChiSoDienNuoc> prev = chiSoRepository.findByTenantIdAndPeriodYearAndPeriodMonth(tenantId, prevYear, prevMonth);
+            Long readingOwnerId = r.getTenantId() != null ? r.getTenantId() : tenantId;
+            List<ChiSoDienNuoc> prev = chiSoRepository.findByTenantIdAndPeriodYearAndPeriodMonth(readingOwnerId, prevYear, prevMonth);
             if (prev != null) {
                 Optional<ChiSoDienNuoc> prevSameMeter = prev.stream().filter(p -> p.getMeterId() != null && p.getMeterId().equals(r.getMeterId())).findFirst();
                 if (prevSameMeter.isPresent()) chiSoBatDau = prevSameMeter.get().getReadingValue();
@@ -199,7 +237,7 @@ public class BillingServiceImpl implements BillingService {
         // include contract-level adjustments (rent, optional utility rates) if exists
         try {
             // find active contract for tenant
-            java.util.Optional<com.trohub.backend.modal.HopDong> maybe = hopDongRepository.findAll().stream().filter(h -> h.getNguoiId() != null && h.getNguoiId().equals(tenantId) && "ACTIVE".equalsIgnoreCase(h.getTrangThai())).findFirst();
+            java.util.Optional<com.trohub.backend.modal.HopDong> maybe = activeContract;
             if (maybe.isPresent()) {
                 com.trohub.backend.modal.HopDong hd = maybe.get();
                 // if contract defines a per-unit electricity rate, override dien item prices
@@ -244,13 +282,28 @@ public class BillingServiceImpl implements BillingService {
         } catch (Exception ex) {
             // ignore if hopDong lookup fails
         }
+        if (shareCount > 1) {
+            java.math.BigDecimal divisor = java.math.BigDecimal.valueOf(shareCount);
+            for (HoaDonDien d : hoaDon.getDienItems()) {
+                if (d.getAmount() != null) {
+                    d.setAmount(splitAmount(d.getAmount(), divisor));
+                }
+            }
+            for (HoaDonNuoc n : hoaDon.getNuocItems()) {
+                if (n.getAmount() != null) {
+                    n.setAmount(splitAmount(n.getAmount(), divisor));
+                }
+            }
+            hoaDon.setTotalAmount(splitAmount(hoaDon.getTotalAmount(), divisor));
+        }
+
         if (coThieuChiSoTruoc) {
             hoaDon.setStatus(InvoiceStatus.DRAFT);
         } else {
             hoaDon.setStatus(InvoiceStatus.UNPAID);
         }
         HoaDon saved = hoaDonRepository.save(hoaDon);
-        return BillingMapper.toDto(saved);
+        return enrichInvoiceDto(BillingMapper.toDto(saved));
     }
 
     @Override
@@ -308,12 +361,12 @@ public class BillingServiceImpl implements BillingService {
 
     @Override
     public InvoiceDto getInvoice(Long id) {
-        return ServiceUtils.exec(() -> hoaDonRepository.findById(id).map(BillingMapper::toDto).orElseThrow(() -> new com.trohub.backend.exception.ResourceNotFoundException("HoaDon not found")), "get invoice " + id);
+        return ServiceUtils.exec(() -> hoaDonRepository.findById(id).map(BillingMapper::toDto).map(this::enrichInvoiceDto).orElseThrow(() -> new com.trohub.backend.exception.ResourceNotFoundException("HoaDon not found")), "get invoice " + id);
     }
 
     @Override
     public List<InvoiceDto> listInvoicesForTenant(Long tenantId, int year, int month) {
-        return ServiceUtils.exec(() -> hoaDonRepository.findByTenantIdAndPeriodYearAndPeriodMonth(tenantId, year, month).stream().map(BillingMapper::toDto).collect(java.util.stream.Collectors.toList()), "list invoices for tenant " + tenantId);
+        return ServiceUtils.exec(() -> hoaDonRepository.findByTenantIdAndPeriodYearAndPeriodMonth(tenantId, year, month).stream().map(BillingMapper::toDto).map(this::enrichInvoiceDto).collect(java.util.stream.Collectors.toList()), "list invoices for tenant " + tenantId);
     }
 
     @Override
@@ -322,9 +375,84 @@ public class BillingServiceImpl implements BillingService {
                 () -> hoaDonRepository.findByPeriodYearAndPeriodMonth(year, month)
                         .stream()
                         .map(BillingMapper::toDto)
+                        .map(this::enrichInvoiceDto)
                         .collect(java.util.stream.Collectors.toList()),
                 "list invoices for period " + year + "-" + month
         );
+    }
+
+    private Optional<com.trohub.backend.modal.HopDong> findContractForTenantInPeriod(Long tenantId, int year, int month) {
+        LocalDate start = YearMonth.of(year, month).atDay(1);
+        LocalDate end = YearMonth.of(year, month).atEndOfMonth();
+        return hopDongRepository.findByNguoiId(tenantId).stream()
+                .filter(h -> h.getPhongId() != null)
+                .filter(h -> h.getNgayBatDau() == null || !h.getNgayBatDau().isAfter(end))
+                .filter(h -> h.getNgayKetThuc() == null || !h.getNgayKetThuc().isBefore(start))
+                .filter(h -> h.getTrangThai() == null || !"CANCELLED".equalsIgnoreCase(h.getTrangThai()))
+                .sorted((a, b) -> Boolean.compare(!"ACTIVE".equalsIgnoreCase(a.getTrangThai()), !"ACTIVE".equalsIgnoreCase(b.getTrangThai())))
+                .findFirst();
+    }
+
+    private List<Long> activeTenantIdsInRoom(Long roomId, int year, int month) {
+        if (roomId == null) return java.util.List.of();
+        LocalDate start = YearMonth.of(year, month).atDay(1);
+        LocalDate end = YearMonth.of(year, month).atEndOfMonth();
+        return hopDongRepository.findByPhongId(roomId).stream()
+                .filter(h -> h.getNguoiId() != null)
+                .filter(h -> h.getNgayBatDau() == null || !h.getNgayBatDau().isAfter(end))
+                .filter(h -> h.getNgayKetThuc() == null || !h.getNgayKetThuc().isBefore(start))
+                .filter(h -> h.getTrangThai() == null || !"CANCELLED".equalsIgnoreCase(h.getTrangThai()))
+                .map(com.trohub.backend.modal.HopDong::getNguoiId)
+                .distinct()
+                .collect(java.util.stream.Collectors.toList());
+    }
+
+    private BigDecimal splitAmount(BigDecimal amount, BigDecimal divisor) {
+        if (amount == null) return BigDecimal.ZERO;
+        return amount.divide(divisor, 0, RoundingMode.HALF_UP);
+    }
+
+    private InvoiceDto enrichInvoiceDto(InvoiceDto dto) {
+        if (dto == null || dto.getTenantId() == null) return dto;
+        nguoiThueRepository.findById(dto.getTenantId()).ifPresent(tenant -> {
+            dto.setTenantName(tenant.getHoTen());
+            dto.setTenantPhone(tenant.getSdt());
+            Long roomId = tenant.getSophong();
+            if (roomId == null) {
+                roomId = findContractForTenantInPeriod(dto.getTenantId(), safeInt(dto.getPeriodYear()), safeInt(dto.getPeriodMonth()))
+                        .map(com.trohub.backend.modal.HopDong::getPhongId)
+                        .orElse(null);
+            }
+            dto.setRoomId(roomId);
+            if (roomId != null) {
+                List<Long> roommates = activeTenantIdsInRoom(roomId, safeInt(dto.getPeriodYear()), safeInt(dto.getPeriodMonth()));
+                int shareCount = Math.max(1, roommates.size());
+                dto.setRoomShareCount(shareCount);
+                if (dto.getTotalAmount() != null) {
+                    dto.setRoomTotalAmount(dto.getTotalAmount().multiply(BigDecimal.valueOf(shareCount)));
+                }
+                phongRepository.findById(roomId).ifPresent(room -> {
+                    dto.setRoomCode(room.getMaPhong());
+                    dto.setBuildingId(room.getToaNhaId());
+                    if (room.getToaNhaId() != null) {
+                        toaNhaRepository.findById(room.getToaNhaId()).ifPresent(building -> {
+                            dto.setBuildingName(building.getTen());
+                            dto.setLandlordId(building.getChuTroId());
+                            if (building.getChuTroId() != null) {
+                                chuTroRepository.findById(building.getChuTroId()).ifPresent(landlord -> dto.setLandlordName(landlord.getTen()));
+                            }
+                        });
+                    }
+                });
+            }
+        });
+        if (dto.getRoomShareCount() == null) dto.setRoomShareCount(1);
+        if (dto.getRoomTotalAmount() == null) dto.setRoomTotalAmount(dto.getTotalAmount());
+        return dto;
+    }
+
+    private int safeInt(Integer value) {
+        return value == null ? 0 : value;
     }
 }
 

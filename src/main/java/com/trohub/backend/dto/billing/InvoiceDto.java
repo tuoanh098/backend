@@ -16,6 +16,16 @@ public class InvoiceDto {
     private Long id;
     private String invoiceNumber;
     private Long tenantId;
+    private String tenantName;
+    private String tenantPhone;
+    private Long roomId;
+    private String roomCode;
+    private Long buildingId;
+    private String buildingName;
+    private Long landlordId;
+    private String landlordName;
+    private Integer roomShareCount;
+    private BigDecimal roomTotalAmount;
     private Integer periodYear;
     private Integer periodMonth;
     private LocalDate issueDate;

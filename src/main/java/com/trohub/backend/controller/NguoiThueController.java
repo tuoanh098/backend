@@ -38,7 +38,7 @@ public class NguoiThueController {
     @GetMapping
     public ResponseEntity<List<NguoiThueDto>> listAll(@RequestParam(value = "q", required = false) String q) {
         List<NguoiThueDto> all = nguoiThueService.listAll().stream()
-                .filter(item -> accessScope.canAccessTenant(item.getId()))
+                .filter(item -> accessScope.canListTenant(item.getId()))
                 .collect(Collectors.toList());
         if (q == null || q.trim().isEmpty()) {
             return ResponseEntity.ok(all);

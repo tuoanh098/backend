@@ -164,6 +164,22 @@ public class AccessScope {
         return hopDongRepository.findByNguoiId(tenantId).stream().anyMatch(h -> canAccessRoom(h.getPhongId()));
     }
 
+    public boolean canListTenant(Long tenantId) {
+        if (canAccessTenant(tenantId)) {
+            return true;
+        }
+        Optional<NguoiThue> currentTenant = currentTenant();
+        if (currentTenant.isPresent() && isTenant() && !isAdminOrLandlord() && !hasRole("ROLE_BILLING_STAFF")) {
+            Long currentRoomId = currentTenant.get().getSophong();
+            return currentRoomId != null
+                    && nguoiThueRepository.findById(tenantId)
+                    .map(NguoiThue::getSophong)
+                    .map(currentRoomId::equals)
+                    .orElse(false);
+        }
+        return false;
+    }
+
     public boolean canAccessContract(Long contractId) {
         if (contractId == null) {
             return false;
