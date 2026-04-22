@@ -1,6 +1,7 @@
 package com.trohub.backend.controller;
 
 import com.trohub.backend.dto.billing.*;
+import com.trohub.backend.security.AccessScope;
 import com.trohub.backend.repository.TaiKhoanRepository;
 import com.trohub.backend.service.BillingService;
 import com.trohub.backend.service.PaymentService;
@@ -17,11 +18,13 @@ public class BillingController {
     private final BillingService billingService;
     private final PaymentService paymentService;
     private final TaiKhoanRepository taiKhoanRepository;
+    private final AccessScope accessScope;
 
-    public BillingController(BillingService billingService, PaymentService paymentService, TaiKhoanRepository taiKhoanRepository) {
+    public BillingController(BillingService billingService, PaymentService paymentService, TaiKhoanRepository taiKhoanRepository, AccessScope accessScope) {
         this.billingService = billingService;
         this.paymentService = paymentService;
         this.taiKhoanRepository = taiKhoanRepository;
+        this.accessScope = accessScope;
     }
 
     @GetMapping("/invoices")
@@ -37,15 +40,17 @@ public class BillingController {
 
         if (isAdminOrStaff) {
             if (tenantId != null) {
+                accessScope.denyUnlessTenant(tenantId);
                 return ResponseEntity.ok(billingService.listInvoicesForTenant(tenantId, year, month));
             }
             // admin/staff and no tenantId => list existing invoices only (do not auto-generate)
-            return ResponseEntity.ok(billingService.listInvoicesForPeriod(year, month));
+            return ResponseEntity.ok(billingService.listInvoicesForPeriod(year, month).stream()
+                    .filter(inv -> accessScope.canAccessTenant(inv.getTenantId()))
+                    .toList());
         } else {
             // normal user: only their own invoices
-            String username = auth.getName();
-            Long id = taiKhoanRepository.findByUsername(username).map(t -> t.getId()).orElseThrow(() -> new RuntimeException("User not found"));
-            return ResponseEntity.ok(billingService.listInvoicesForTenant(id, year, month));
+            Long tenantProfileId = accessScope.currentTenantIdOrDeny();
+            return ResponseEntity.ok(billingService.listInvoicesForTenant(tenantProfileId, year, month));
         }
     }
 
@@ -53,6 +58,7 @@ public class BillingController {
     @PreAuthorize("hasAnyAuthority('ROLE_USER','ROLE_ADMIN','ROLE_LANDLORD')")
     public ResponseEntity<InvoiceDto> getInvoice(@PathVariable Long id) {
         InvoiceDto dto = billingService.getInvoice(id);
+        accessScope.denyUnlessTenant(dto.getTenantId());
         // attach payment history
         try {
             var payments = paymentService.listPaymentsForInvoice(id);
@@ -71,7 +77,7 @@ public class BillingController {
         int year = Integer.parseInt(parts[0]);
         int month = Integer.parseInt(parts[1]);
         List<InvoiceDto> ds = billingService.generateMonthlyBills(year, month);
-        return ResponseEntity.ok(ds);
+        return ResponseEntity.ok(ds.stream().filter(inv -> accessScope.canAccessTenant(inv.getTenantId())).toList());
     }
 
     @PostMapping("/generate-async")
@@ -97,11 +103,12 @@ public class BillingController {
         var auth = org.springframework.security.core.context.SecurityContextHolder.getContext().getAuthentication();
         boolean isAdminOrStaff = auth.getAuthorities().stream().anyMatch(a -> a.getAuthority().equals("ROLE_ADMIN") || a.getAuthority().equals("ROLE_LANDLORD") || a.getAuthority().equals("ROLE_BILLING_STAFF"));
         if (!isAdminOrStaff) {
-            String username = auth.getName();
-            Long userId = taiKhoanRepository.findByUsername(username).map(t -> t.getId()).orElseThrow(() -> new RuntimeException("User not found"));
             // check invoice ownership
             InvoiceDto inv = billingService.getInvoice(id);
-            if (!inv.getTenantId().equals(userId)) throw new org.springframework.security.access.AccessDeniedException("Not allowed");
+            if (!inv.getTenantId().equals(accessScope.currentTenantIdOrDeny())) throw new org.springframework.security.access.AccessDeniedException("Not allowed");
+        } else {
+            InvoiceDto inv = billingService.getInvoice(id);
+            accessScope.denyUnlessTenant(inv.getTenantId());
         }
         return ResponseEntity.ok(paymentService.listPaymentsForInvoice(id));
     }
@@ -109,6 +116,8 @@ public class BillingController {
     @PostMapping("/invoices/{id}/payments/manual")
     @PreAuthorize("hasAnyAuthority('ROLE_ADMIN','ROLE_LANDLORD','ROLE_BILLING_STAFF')")
     public ResponseEntity<com.trohub.backend.dto.billing.PaymentRecordDto> createManualPayment(@PathVariable Long id, @jakarta.validation.Valid @RequestBody com.trohub.backend.dto.billing.ManualPaymentRequestDto req) {
+        InvoiceDto inv = billingService.getInvoice(id);
+        accessScope.denyUnlessTenant(inv.getTenantId());
         var auth = org.springframework.security.core.context.SecurityContextHolder.getContext().getAuthentication();
         String username = auth != null ? auth.getName() : "system";
         var rec = paymentService.createManualPayment(id, req, username);
@@ -118,6 +127,7 @@ public class BillingController {
     @PostMapping("/draft")
     @PreAuthorize("hasAnyAuthority('ROLE_ADMIN','ROLE_LANDLORD','ROLE_BILLING_STAFF')")
     public ResponseEntity<InvoiceDto> taoDraft(@jakarta.validation.Valid @RequestBody com.trohub.backend.dto.billing.DraftRequestDto yeuCau) {
+        accessScope.denyUnlessTenant(yeuCau.getTenantId());
         int nam = yeuCau.getNam() != null ? yeuCau.getNam() : java.time.Year.now().getValue();
         int thang = yeuCau.getThang() != null ? yeuCau.getThang() : java.time.LocalDate.now().getMonthValue();
         InvoiceDto dto = billingService.taoDraftHoaDon(yeuCau.getTenantId(), nam, thang);

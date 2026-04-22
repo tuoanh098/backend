@@ -4,6 +4,7 @@ import com.trohub.backend.dto.GuestEntryReviewRequest;
 import com.trohub.backend.dto.KhachVaoRaDto;
 import com.trohub.backend.mapper.KhachVaoRaMapper;
 import com.trohub.backend.modal.KhachVaoRa;
+import com.trohub.backend.security.AccessScope;
 import com.trohub.backend.repository.ChuTroRepository;
 import com.trohub.backend.repository.KhachVaoRaRepository;
 import com.trohub.backend.repository.PhongRepository;
@@ -32,6 +33,7 @@ public class KhachVaoRaController {
     private final ToaNhaRepository toaNhaRepository;
     private final PhongRepository phongRepository;
     private final KhachVaoRaRepository khachVaoRaRepository;
+    private final AccessScope accessScope;
 
     public KhachVaoRaController(
             KhachVaoRaService khachVaoRaService,
@@ -39,7 +41,8 @@ public class KhachVaoRaController {
             ChuTroRepository chuTroRepository,
             ToaNhaRepository toaNhaRepository,
             PhongRepository phongRepository,
-            KhachVaoRaRepository khachVaoRaRepository
+            KhachVaoRaRepository khachVaoRaRepository,
+            AccessScope accessScope
     ) {
         this.khachVaoRaService = khachVaoRaService;
         this.taiKhoanRepository = taiKhoanRepository;
@@ -47,43 +50,29 @@ public class KhachVaoRaController {
         this.toaNhaRepository = toaNhaRepository;
         this.phongRepository = phongRepository;
         this.khachVaoRaRepository = khachVaoRaRepository;
+        this.accessScope = accessScope;
     }
 
     @PreAuthorize("hasAnyAuthority('ROLE_ADMIN','ROLE_LANDLORD','ROLE_USER')")
     @PostMapping
     public ResponseEntity<KhachVaoRaDto> create(@jakarta.validation.Valid @RequestBody KhachVaoRaDto dto) {
+        accessScope.denyUnlessRoom(dto.getPhongId());
         KhachVaoRaDto created = khachVaoRaService.create(dto);
         return ResponseEntity.created(URI.create("/api/guest-entries/" + created.getId())).body(created);
     }
 
+    @PreAuthorize("hasAnyAuthority('ROLE_ADMIN','ROLE_LANDLORD','ROLE_USER')")
     @GetMapping
     public ResponseEntity<List<KhachVaoRaDto>> listAll() {
-        return ResponseEntity.ok(khachVaoRaService.listAll());
+        return ResponseEntity.ok(khachVaoRaService.listAll().stream()
+                .filter(item -> accessScope.canAccessRoom(item.getPhongId()))
+                .toList());
     }
 
     @PreAuthorize("hasAnyAuthority('ROLE_ADMIN','ROLE_LANDLORD')")
     @GetMapping("/review-items")
     public ResponseEntity<List<KhachVaoRaDto>> reviewItems() {
-        var auth = org.springframework.security.core.context.SecurityContextHolder.getContext().getAuthentication();
-        if (auth == null) {
-            throw new ResponseStatusException(HttpStatus.FORBIDDEN);
-        }
-        boolean isAdmin = auth.getAuthorities().stream().anyMatch(a -> "ROLE_ADMIN".equals(a.getAuthority()));
-        if (isAdmin) {
-            return ResponseEntity.ok(khachVaoRaService.listAll());
-        }
-
-        String username = auth.getName();
-        var tk = taiKhoanRepository.findByUsername(username)
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.FORBIDDEN));
-        var landlord = chuTroRepository.findByTaiKhoanId(tk.getId())
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND));
-
-        List<Long> buildingIds = toaNhaRepository.findAllByChuTroId(landlord.getId())
-                .stream()
-                .map(b -> b.getId())
-                .filter(id -> id != null)
-                .collect(Collectors.toList());
+        List<Long> buildingIds = new ArrayList<>(accessScope.visibleBuildingIds());
         if (buildingIds.isEmpty()) {
             return ResponseEntity.ok(new ArrayList<>());
         }
@@ -104,18 +93,25 @@ public class KhachVaoRaController {
 
     @GetMapping("/{id}")
     public ResponseEntity<KhachVaoRaDto> getById(@PathVariable Long id) {
-        return ResponseEntity.ok(khachVaoRaService.getById(id));
+        KhachVaoRaDto dto = khachVaoRaService.getById(id);
+        accessScope.denyUnlessRoom(dto.getPhongId());
+        return ResponseEntity.ok(dto);
     }
 
     @PreAuthorize("hasAnyAuthority('ROLE_ADMIN','ROLE_LANDLORD')")
     @PutMapping("/{id}")
     public ResponseEntity<KhachVaoRaDto> update(@PathVariable Long id, @jakarta.validation.Valid @RequestBody KhachVaoRaDto dto) {
+        KhachVaoRaDto existing = khachVaoRaService.getById(id);
+        accessScope.denyUnlessRoom(existing.getPhongId());
+        accessScope.denyUnlessRoom(dto.getPhongId());
         return ResponseEntity.ok(khachVaoRaService.update(id, dto));
     }
 
     @PreAuthorize("hasAnyAuthority('ROLE_ADMIN','ROLE_LANDLORD')")
     @DeleteMapping("/{id}")
     public ResponseEntity<Void> delete(@PathVariable Long id) {
+        KhachVaoRaDto existing = khachVaoRaService.getById(id);
+        accessScope.denyUnlessRoom(existing.getPhongId());
         khachVaoRaService.delete(id);
         return ResponseEntity.noContent().build();
     }
@@ -123,18 +119,24 @@ public class KhachVaoRaController {
     @PreAuthorize("hasAnyAuthority('ROLE_ADMIN','ROLE_LANDLORD')")
     @PostMapping("/{id}/approve")
     public ResponseEntity<KhachVaoRaDto> approve(@PathVariable Long id) {
+        KhachVaoRaDto existing = khachVaoRaService.getById(id);
+        accessScope.denyUnlessRoom(existing.getPhongId());
         return ResponseEntity.ok(khachVaoRaService.approve(id));
     }
 
     @PreAuthorize("hasAnyAuthority('ROLE_ADMIN','ROLE_LANDLORD')")
     @PostMapping("/{id}/reject")
     public ResponseEntity<KhachVaoRaDto> reject(@PathVariable Long id) {
+        KhachVaoRaDto existing = khachVaoRaService.getById(id);
+        accessScope.denyUnlessRoom(existing.getPhongId());
         return ResponseEntity.ok(khachVaoRaService.reject(id));
     }
 
     @PreAuthorize("hasAnyAuthority('ROLE_ADMIN','ROLE_LANDLORD')")
     @PostMapping("/{id}/request-info")
     public ResponseEntity<KhachVaoRaDto> requestInfo(@PathVariable Long id, @RequestBody(required = false) GuestEntryReviewRequest req) {
+        KhachVaoRaDto existing = khachVaoRaService.getById(id);
+        accessScope.denyUnlessRoom(existing.getPhongId());
         String note = req == null ? null : req.getNote();
         return ResponseEntity.ok(khachVaoRaService.requestInfo(id, note));
     }

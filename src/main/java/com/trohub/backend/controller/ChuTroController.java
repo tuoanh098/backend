@@ -1,6 +1,7 @@
 package com.trohub.backend.controller;
 
 import com.trohub.backend.dto.ChuTroDto;
+import com.trohub.backend.security.AccessScope;
 import com.trohub.backend.service.ChuTroService;
 import com.trohub.backend.service.ReportService;
 import com.trohub.backend.repository.TaiKhoanRepository;
@@ -27,17 +28,23 @@ public class ChuTroController {
     private final ReportService reportService;
     private final TaiKhoanRepository taiKhoanRepository;
     private final ChuTroRepository chuTroRepository;
+    private final AccessScope accessScope;
 
-    public ChuTroController(ChuTroService chuTroService, ReportService reportService, TaiKhoanRepository taiKhoanRepository, ChuTroRepository chuTroRepository) {
+    public ChuTroController(ChuTroService chuTroService, ReportService reportService, TaiKhoanRepository taiKhoanRepository, ChuTroRepository chuTroRepository, AccessScope accessScope) {
         this.chuTroService = chuTroService;
         this.reportService = reportService;
         this.taiKhoanRepository = taiKhoanRepository;
         this.chuTroRepository = chuTroRepository;
+        this.accessScope = accessScope;
     }
 
+    @PreAuthorize("hasAnyAuthority('ROLE_ADMIN','ROLE_LANDLORD','ROLE_USER','ROLE_BILLING_STAFF')")
     @GetMapping
     public ResponseEntity<List<ChuTroDto>> listAll(@RequestParam(value = "q", required = false) String q) {
-        List<ChuTroDto> all = chuTroService.listAll();
+        java.util.Set<Long> visibleLandlordIds = accessScope.visibleLandlordIds();
+        List<ChuTroDto> all = chuTroService.listAll().stream()
+                .filter(item -> visibleLandlordIds.contains(item.getId()))
+                .collect(Collectors.toList());
         if (q == null || q.trim().isEmpty()) {
             return ResponseEntity.ok(all);
         }
@@ -51,8 +58,12 @@ public class ChuTroController {
         return ResponseEntity.ok(filtered);
     }
 
+    @PreAuthorize("hasAnyAuthority('ROLE_ADMIN','ROLE_LANDLORD','ROLE_USER','ROLE_BILLING_STAFF')")
     @GetMapping("/{id}")
     public ResponseEntity<ChuTroDto> getById(@PathVariable Long id) {
+        if (!accessScope.canAccessLandlord(id)) {
+            throw new org.springframework.security.access.AccessDeniedException("Landlord is outside current scope");
+        }
         return ResponseEntity.ok(chuTroService.getById(id));
     }
 
@@ -65,12 +76,18 @@ public class ChuTroController {
     @PutMapping("/{id}")
     @PreAuthorize("hasAnyAuthority('ROLE_ADMIN','ROLE_LANDLORD')")
     public ResponseEntity<ChuTroDto> update(@PathVariable Long id, @RequestBody ChuTroDto dto) {
+        if (!accessScope.canAccessLandlord(id)) {
+            throw new org.springframework.security.access.AccessDeniedException("Landlord is outside current scope");
+        }
         return ResponseEntity.ok(chuTroService.update(id, dto));
     }
 
     @DeleteMapping("/{id}")
     @PreAuthorize("hasAnyAuthority('ROLE_ADMIN','ROLE_LANDLORD')")
     public ResponseEntity<Void> delete(@PathVariable Long id) {
+        if (!accessScope.canAccessLandlord(id)) {
+            throw new org.springframework.security.access.AccessDeniedException("Landlord is outside current scope");
+        }
         chuTroService.delete(id);
         return ResponseEntity.noContent().build();
     }

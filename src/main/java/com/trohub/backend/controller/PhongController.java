@@ -1,6 +1,7 @@
 package com.trohub.backend.controller;
 
 import com.trohub.backend.dto.PhongDto;
+import com.trohub.backend.security.AccessScope;
 import com.trohub.backend.service.PhongService;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -16,21 +17,26 @@ import java.util.stream.Collectors;
 public class PhongController {
 
     private final PhongService phongService;
+    private final AccessScope accessScope;
 
-    public PhongController(PhongService phongService) {
+    public PhongController(PhongService phongService, AccessScope accessScope) {
         this.phongService = phongService;
+        this.accessScope = accessScope;
     }
 
     @PreAuthorize("hasAnyAuthority('ROLE_ADMIN','ROLE_LANDLORD')")
     @PostMapping
     public ResponseEntity<PhongDto> create(@jakarta.validation.Valid @RequestBody PhongDto dto) {
+        accessScope.denyUnlessBuilding(dto.getToaNhaId());
         PhongDto created = phongService.create(dto);
         return ResponseEntity.created(URI.create("/api/phongs/" + created.getId())).body(created);
     }
 
     @GetMapping
     public ResponseEntity<List<PhongDto>> listAll(@RequestParam(value = "q", required = false) String q) {
-        List<PhongDto> all = phongService.listAll();
+        List<PhongDto> all = phongService.listAll().stream()
+                .filter(item -> accessScope.canAccessRoom(item.getId()))
+                .collect(Collectors.toList());
         if (q == null || q.trim().isEmpty()) {
             return ResponseEntity.ok(all);
         }
@@ -45,17 +51,22 @@ public class PhongController {
 
     @GetMapping("/{id}")
     public ResponseEntity<PhongDto> getById(@PathVariable Long id) {
+        accessScope.denyUnlessRoom(id);
         return ResponseEntity.ok(phongService.getById(id));
     }
 
+    @PreAuthorize("hasAnyAuthority('ROLE_ADMIN','ROLE_LANDLORD')")
     @PutMapping("/{id}")
     public ResponseEntity<PhongDto> update(@PathVariable Long id, @jakarta.validation.Valid @RequestBody PhongDto dto) {
+        accessScope.denyUnlessRoom(id);
+        accessScope.denyUnlessBuilding(dto.getToaNhaId());
         return ResponseEntity.ok(phongService.update(id, dto));
     }
 
     @PreAuthorize("hasAnyAuthority('ROLE_ADMIN','ROLE_LANDLORD')")
     @DeleteMapping("/{id}")
     public ResponseEntity<Void> delete(@PathVariable Long id) {
+        accessScope.denyUnlessRoom(id);
         phongService.delete(id);
         return ResponseEntity.noContent().build();
     }

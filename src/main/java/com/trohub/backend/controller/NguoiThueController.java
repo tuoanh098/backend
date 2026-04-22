@@ -1,6 +1,7 @@
 package com.trohub.backend.controller;
 
 import com.trohub.backend.dto.NguoiThueDto;
+import com.trohub.backend.security.AccessScope;
 import com.trohub.backend.service.NguoiThueService;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -16,21 +17,29 @@ import java.util.stream.Collectors;
 public class NguoiThueController {
 
     private final NguoiThueService nguoiThueService;
+    private final AccessScope accessScope;
 
-    public NguoiThueController(NguoiThueService nguoiThueService) {
+    public NguoiThueController(NguoiThueService nguoiThueService, AccessScope accessScope) {
         this.nguoiThueService = nguoiThueService;
+        this.accessScope = accessScope;
     }
 
     @PreAuthorize("hasAnyAuthority('ROLE_ADMIN','ROLE_LANDLORD')")
     @PostMapping
     public ResponseEntity<NguoiThueDto> create(@jakarta.validation.Valid @RequestBody NguoiThueDto dto) {
+        if (dto.getSophong() != null) {
+            accessScope.denyUnlessRoom(dto.getSophong());
+        }
         NguoiThueDto created = nguoiThueService.create(dto);
         return ResponseEntity.created(URI.create("/api/tenants/" + created.getId())).body(created);
     }
 
+    @PreAuthorize("hasAnyAuthority('ROLE_ADMIN','ROLE_LANDLORD','ROLE_USER')")
     @GetMapping
     public ResponseEntity<List<NguoiThueDto>> listAll(@RequestParam(value = "q", required = false) String q) {
-        List<NguoiThueDto> all = nguoiThueService.listAll();
+        List<NguoiThueDto> all = nguoiThueService.listAll().stream()
+                .filter(item -> accessScope.canAccessTenant(item.getId()))
+                .collect(Collectors.toList());
         if (q == null || q.trim().isEmpty()) {
             return ResponseEntity.ok(all);
         }
@@ -44,19 +53,27 @@ public class NguoiThueController {
         return ResponseEntity.ok(filtered);
     }
 
+    @PreAuthorize("hasAnyAuthority('ROLE_ADMIN','ROLE_LANDLORD','ROLE_USER')")
     @GetMapping("/{id}")
     public ResponseEntity<NguoiThueDto> getById(@PathVariable Long id) {
+        accessScope.denyUnlessTenant(id);
         return ResponseEntity.ok(nguoiThueService.getById(id));
     }
 
+    @PreAuthorize("hasAnyAuthority('ROLE_ADMIN','ROLE_LANDLORD')")
     @PutMapping("/{id}")
     public ResponseEntity<NguoiThueDto> update(@PathVariable Long id, @jakarta.validation.Valid @RequestBody NguoiThueDto dto) {
+        accessScope.denyUnlessTenant(id);
+        if (dto.getSophong() != null) {
+            accessScope.denyUnlessRoom(dto.getSophong());
+        }
         return ResponseEntity.ok(nguoiThueService.update(id, dto));
     }
 
     @PreAuthorize("hasAnyAuthority('ROLE_ADMIN','ROLE_LANDLORD')")
     @DeleteMapping("/{id}")
     public ResponseEntity<Void> delete(@PathVariable Long id) {
+        accessScope.denyUnlessTenant(id);
         nguoiThueService.delete(id);
         return ResponseEntity.noContent().build();
     }

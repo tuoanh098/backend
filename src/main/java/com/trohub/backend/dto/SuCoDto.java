@@ -25,7 +25,6 @@ public class SuCoDto {
     @NotNull(message = "phongId is required")
     private Long phongId;
 
-    @NotNull(message = "reportedBy is required")
     private Long reportedBy;
     private LocalDateTime reportedAt;
     private LocalDateTime resolvedAt;

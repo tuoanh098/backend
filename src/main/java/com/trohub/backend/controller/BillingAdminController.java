@@ -7,6 +7,7 @@ import com.trohub.backend.repository.BankInfoRepository;
 import com.trohub.backend.modal.billing.MeterType;
 import com.trohub.backend.repository.ChiSoRepository;
 import com.trohub.backend.repository.HopDongRepository;
+import com.trohub.backend.security.AccessScope;
 import com.trohub.backend.service.BillingService;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.MediaType;
@@ -38,8 +39,9 @@ public class BillingAdminController {
     private final BankInfoRepository bankInfoRepository;
     private final com.trohub.backend.repository.PhieuThuRepository phieuThuRepository;
     private final HopDongRepository hopDongRepository;
+    private final AccessScope accessScope;
 
-    public BillingAdminController(ChiSoRepository chiSoRepository, BillingService billingService, com.trohub.backend.repository.DonGiaRepository donGiaRepository, com.trohub.backend.repository.HoaDonRepository hoaDonRepository, BankInfoRepository bankInfoRepository, com.trohub.backend.repository.PhieuThuRepository phieuThuRepository, HopDongRepository hopDongRepository) {
+    public BillingAdminController(ChiSoRepository chiSoRepository, BillingService billingService, com.trohub.backend.repository.DonGiaRepository donGiaRepository, com.trohub.backend.repository.HoaDonRepository hoaDonRepository, BankInfoRepository bankInfoRepository, com.trohub.backend.repository.PhieuThuRepository phieuThuRepository, HopDongRepository hopDongRepository, AccessScope accessScope) {
         this.chiSoRepository = chiSoRepository;
         this.billingService = billingService;
         this.donGiaRepository = donGiaRepository;
@@ -47,11 +49,13 @@ public class BillingAdminController {
         this.bankInfoRepository = bankInfoRepository;
         this.phieuThuRepository = phieuThuRepository;
         this.hopDongRepository = hopDongRepository;
+        this.accessScope = accessScope;
     }
 
     @PreAuthorize("hasAnyAuthority('ROLE_ADMIN','ROLE_LANDLORD')")
     @PostMapping("/readings")
     public ResponseEntity<ChiSoDienNuoc> createReading(@RequestBody CreateReadingRequest req) {
+        accessScope.denyUnlessTenant(req.getTenantId());
         ChiSoDienNuoc r = ChiSoDienNuoc.builder()
                 .meterType(req.getMeterType())
                 .meterId(req.getMeterId())
@@ -69,6 +73,9 @@ public class BillingAdminController {
     @PreAuthorize("hasAnyAuthority('ROLE_ADMIN','ROLE_LANDLORD')")
     @PostMapping("/apply-daily-fee")
     public ResponseEntity<?> applyDailyFee(@RequestBody ApplyFeeRequest req) {
+        var invoice = hoaDonRepository.findById(req.getHoaDonId()).orElse(null);
+        if (invoice == null) return ResponseEntity.notFound().build();
+        accessScope.denyUnlessTenant(invoice.getTenantId());
         billingService.applyDailyLateFee(req.getHoaDonId(), req.getPerDayAmount());
         return ResponseEntity.ok(java.util.Map.of("message", "applied"));
     }
@@ -76,6 +83,9 @@ public class BillingAdminController {
     @PreAuthorize("hasAnyAuthority('ROLE_ADMIN','ROLE_LANDLORD')")
     @DeleteMapping("/invoices/{id}")
     public ResponseEntity<?> deleteInvoice(@PathVariable Long id) {
+        var invoice = hoaDonRepository.findById(id).orElse(null);
+        if (invoice == null) return ResponseEntity.notFound().build();
+        accessScope.denyUnlessTenant(invoice.getTenantId());
         hoaDonRepository.deleteById(id);
         return ResponseEntity.noContent().build();
     }
@@ -86,6 +96,7 @@ public class BillingAdminController {
         if (req.getTenantId() == null || req.getPeriodYear() == null || req.getPeriodMonth() == null) {
             return ResponseEntity.badRequest().body(java.util.Map.of("error", "tenantId, periodYear and periodMonth are required"));
         }
+        accessScope.denyUnlessTenant(req.getTenantId());
         var list = hoaDonRepository.findByTenantIdAndPeriodYearAndPeriodMonth(req.getTenantId(), req.getPeriodYear(), req.getPeriodMonth());
         hoaDonRepository.deleteAll(list);
         return ResponseEntity.ok(java.util.Map.of("deleted", list.size()));
@@ -102,6 +113,7 @@ public class BillingAdminController {
         int month = req.getPeriodMonth();
 
         if (req.getTenantId() != null) {
+            accessScope.denyUnlessTenant(req.getTenantId());
             var list = hoaDonRepository.findByTenantIdAndPeriodYearAndPeriodMonth(req.getTenantId(), year, month);
             hoaDonRepository.deleteAll(list);
             InvoiceDto dto = billingService.combineSubInvoices(req.getTenantId(), year, month);
@@ -114,6 +126,7 @@ public class BillingAdminController {
         Set<Long> tenantIds = new LinkedHashSet<>();
         hopDongRepository.findAll().stream()
                 .filter(h -> h.getNguoiId() != null)
+                .filter(h -> accessScope.canAccessTenant(h.getNguoiId()))
                 .filter(h -> h.getNgayBatDau() == null || !h.getNgayBatDau().isAfter(end))
                 .filter(h -> h.getNgayKetThuc() == null || !h.getNgayKetThuc().isBefore(start))
                 .filter(h -> h.getTrangThai() == null || !"CANCELLED".equalsIgnoreCase(h.getTrangThai()))
@@ -133,6 +146,7 @@ public class BillingAdminController {
     public ResponseEntity<?> simulateInvoicePaid(@PathVariable Long id) {
         var hoaDon = hoaDonRepository.findById(id).orElse(null);
         if (hoaDon == null) return ResponseEntity.notFound().build();
+        accessScope.denyUnlessTenant(hoaDon.getTenantId());
         try {
             java.math.BigDecimal amt = hoaDon.getTotalAmount() != null ? hoaDon.getTotalAmount() : java.math.BigDecimal.ZERO;
             com.trohub.backend.modal.billing.PhieuThu pt = com.trohub.backend.modal.billing.PhieuThu.builder()
