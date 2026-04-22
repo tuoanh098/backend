@@ -360,16 +360,19 @@ public class BillingServiceImpl implements BillingService {
     }
 
     @Override
+    @Transactional(readOnly = true)
     public InvoiceDto getInvoice(Long id) {
         return ServiceUtils.exec(() -> hoaDonRepository.findById(id).map(BillingMapper::toDto).map(this::enrichInvoiceDto).orElseThrow(() -> new com.trohub.backend.exception.ResourceNotFoundException("HoaDon not found")), "get invoice " + id);
     }
 
     @Override
+    @Transactional(readOnly = true)
     public List<InvoiceDto> listInvoicesForTenant(Long tenantId, int year, int month) {
         return ServiceUtils.exec(() -> hoaDonRepository.findByTenantIdAndPeriodYearAndPeriodMonth(tenantId, year, month).stream().map(BillingMapper::toDto).map(this::enrichInvoiceDto).collect(java.util.stream.Collectors.toList()), "list invoices for tenant " + tenantId);
     }
 
     @Override
+    @Transactional(readOnly = true)
     public List<InvoiceDto> listInvoicesForPeriod(int year, int month) {
         return ServiceUtils.exec(
                 () -> hoaDonRepository.findByPeriodYearAndPeriodMonth(year, month)
