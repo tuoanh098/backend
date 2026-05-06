@@ -20,6 +20,7 @@ public class NguoiThueMapper {
                 .thongTinLienLac(e.getThongTinLienLac())
                 .taiKhoanId(e.getTaiKhoan() != null ? e.getTaiKhoan().getId() : null)
                 .sophong(e.getSophong())
+                .imagePaths(toList(e.getImagePaths()))
                 .build();
     }
 
@@ -38,7 +39,16 @@ public class NguoiThueMapper {
                 .thongTinLienLac(dto.getThongTinLienLac())
                 // Note: taiKhoan association should be resolved in service (fetch by id)
                 .sophong(dto.getSophong())
+                .imagePaths(dto.getImagePaths() == null ? null : String.join(",", dto.getImagePaths()))
                 .build();
+    }
+
+    private static java.util.List<String> toList(String raw) {
+        if (raw == null || raw.isBlank()) return java.util.List.of();
+        return java.util.Arrays.stream(raw.split(","))
+                .map(String::trim)
+                .filter(s -> !s.isBlank())
+                .toList();
     }
 }
 

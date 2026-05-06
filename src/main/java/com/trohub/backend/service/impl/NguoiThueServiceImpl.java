@@ -1,5 +1,7 @@
 package com.trohub.backend.service.impl;
 
+import com.trohub.backend.config.UploadProperties;
+import com.trohub.backend.exception.BadRequestException;
 import com.trohub.backend.dto.NguoiThueDto;
 import com.trohub.backend.mapper.NguoiThueMapper;
 import com.trohub.backend.modal.NguoiThue;
@@ -8,8 +10,13 @@ import com.trohub.backend.repository.NguoiThueRepository;
 import com.trohub.backend.repository.TaiKhoanRepository;
 import com.trohub.backend.service.NguoiThueService;
 import org.springframework.stereotype.Service;
+import org.springframework.web.multipart.MultipartFile;
 
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.List;
+import java.util.UUID;
 import java.util.stream.Collectors;
 import com.trohub.backend.exception.ResourceNotFoundException;
 import com.trohub.backend.exception.ConflictException;
@@ -24,10 +31,12 @@ public class NguoiThueServiceImpl implements NguoiThueService {
 
     private final NguoiThueRepository nguoiThueRepository;
     private final TaiKhoanRepository taiKhoanRepository;
+    private final UploadProperties uploadProperties;
 
-    public NguoiThueServiceImpl(NguoiThueRepository nguoiThueRepository, TaiKhoanRepository taiKhoanRepository) {
+    public NguoiThueServiceImpl(NguoiThueRepository nguoiThueRepository, TaiKhoanRepository taiKhoanRepository, UploadProperties uploadProperties) {
         this.nguoiThueRepository = nguoiThueRepository;
         this.taiKhoanRepository = taiKhoanRepository;
+        this.uploadProperties = uploadProperties;
     }
 
     @Override
@@ -102,6 +111,49 @@ public class NguoiThueServiceImpl implements NguoiThueService {
     @Override
     public List<NguoiThueDto> listAll() {
         return ServiceUtils.exec(() -> nguoiThueRepository.findAll().stream().map(NguoiThueMapper::toDto).collect(Collectors.toList()), "list all NguoiThue");
+    }
+
+    @Override
+    public NguoiThueDto addAttachment(Long id, MultipartFile file) {
+        return ServiceUtils.exec(() -> doAddAttachment(id, file), "add attachment to NguoiThue id=" + id);
+    }
+
+    private NguoiThueDto doAddAttachment(Long id, MultipartFile file) {
+        NguoiThue tenant = nguoiThueRepository.findById(id).orElseThrow(() -> new ResourceNotFoundException("NguoiThue not found"));
+        validateUpload(file);
+        Path baseDir = Paths.get(uploadProperties.getBaseDir(), uploadProperties.getTenantsDir(), String.valueOf(id));
+        try {
+            Files.createDirectories(baseDir);
+            String filename = UUID.randomUUID() + "_" + sanitizeFilename(file.getOriginalFilename());
+            Path target = baseDir.resolve(filename);
+            Files.copy(file.getInputStream(), target, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+            String relPath = "/uploads/" + uploadProperties.getTenantsDir() + "/" + id + "/" + filename;
+            String existing = tenant.getImagePaths();
+            tenant.setImagePaths(existing == null || existing.isBlank() ? relPath : existing + "," + relPath);
+            return NguoiThueMapper.toDto(nguoiThueRepository.save(tenant));
+        } catch (java.io.IOException e) {
+            throw new RuntimeException("Failed to store uploaded tenant file: " + e.getMessage(), e);
+        }
+    }
+
+    private void validateUpload(MultipartFile file) {
+        if (file == null || file.isEmpty()) throw new BadRequestException("No file uploaded");
+        java.util.Set<String> allowed = uploadProperties.getAllowedTypes().stream()
+                .map(String::trim)
+                .map(String::toLowerCase)
+                .collect(java.util.stream.Collectors.toSet());
+        String contentType = file.getContentType();
+        if (contentType == null || !allowed.contains(contentType.toLowerCase())) {
+            throw new BadRequestException("Unsupported file type: " + contentType);
+        }
+        if (file.getSize() > uploadProperties.getMaxSize()) {
+            throw new BadRequestException("File too large: " + file.getSize());
+        }
+    }
+
+    private String sanitizeFilename(String original) {
+        String name = original == null || original.isBlank() ? "tenant.jpg" : original.trim();
+        return name.replaceAll("[^a-zA-Z0-9._-]", "_");
     }
 }
 

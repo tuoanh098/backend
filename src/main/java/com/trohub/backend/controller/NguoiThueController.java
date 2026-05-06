@@ -78,6 +78,16 @@ public class NguoiThueController {
         return ResponseEntity.noContent().build();
     }
 
+    @PreAuthorize("hasAnyAuthority('ROLE_ADMIN','ROLE_LANDLORD')")
+    @PostMapping(path = "/{id}/attachments", consumes = "multipart/form-data")
+    public ResponseEntity<NguoiThueDto> uploadAttachment(
+            @PathVariable Long id,
+            @RequestParam("file") org.springframework.web.multipart.MultipartFile file
+    ) {
+        accessScope.denyUnlessTenant(id);
+        return ResponseEntity.ok(nguoiThueService.addAttachment(id, file));
+    }
+
     private boolean contains(String value, String keyword) {
         return value != null && value.toLowerCase(Locale.ROOT).contains(keyword);
     }

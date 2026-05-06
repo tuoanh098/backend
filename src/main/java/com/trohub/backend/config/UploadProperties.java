@@ -25,6 +25,8 @@ public class UploadProperties {
 
     private String guestEntriesDir = "guest-entries";
 
+    private String tenantsDir = "tenants";
+
     public long getMaxSize() {
         return maxSize;
     }
@@ -63,6 +65,14 @@ public class UploadProperties {
 
     public void setGuestEntriesDir(String guestEntriesDir) {
         this.guestEntriesDir = guestEntriesDir;
+    }
+
+    public String getTenantsDir() {
+        return tenantsDir;
+    }
+
+    public void setTenantsDir(String tenantsDir) {
+        this.tenantsDir = tenantsDir;
     }
 }
 

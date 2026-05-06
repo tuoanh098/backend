@@ -32,7 +32,7 @@ public class NguoiThueDto {
     @Size(max = 512)
     private String diaChi;
 
-    @Pattern(regexp = "^[0-9+\\- ]{7,20}$", message = "sdt must contain only digits, spaces, + or - and be 7-20 chars")
+    @Pattern(regexp = "^$|^[0-9+\\- ]{7,20}$", message = "sdt must contain only digits, spaces, + or - and be 7-20 chars")
     private String sdt;
 
     @Size(max = 255)
@@ -49,5 +49,7 @@ public class NguoiThueDto {
 
     @PositiveOrZero(message = "sophong must be zero or positive")
     private Long sophong;
+
+    private java.util.List<String> imagePaths;
 }
 

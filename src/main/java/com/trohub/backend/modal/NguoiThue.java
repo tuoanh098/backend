@@ -38,6 +38,9 @@ public class NguoiThue {
 
     private Long sophong;
 
+    @Column(name = "image_paths", columnDefinition = "TEXT")
+    private String imagePaths;
+
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
 
