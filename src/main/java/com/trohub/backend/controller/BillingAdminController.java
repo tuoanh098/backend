@@ -7,6 +7,7 @@ import com.trohub.backend.repository.BankInfoRepository;
 import com.trohub.backend.modal.billing.MeterType;
 import com.trohub.backend.repository.ChiSoRepository;
 import com.trohub.backend.repository.HopDongRepository;
+import com.trohub.backend.config.UploadProperties;
 import com.trohub.backend.security.AccessScope;
 import com.trohub.backend.service.BillingService;
 import org.springframework.http.ResponseEntity;
@@ -40,8 +41,9 @@ public class BillingAdminController {
     private final com.trohub.backend.repository.PhieuThuRepository phieuThuRepository;
     private final HopDongRepository hopDongRepository;
     private final AccessScope accessScope;
+    private final UploadProperties uploadProperties;
 
-    public BillingAdminController(ChiSoRepository chiSoRepository, BillingService billingService, com.trohub.backend.repository.DonGiaRepository donGiaRepository, com.trohub.backend.repository.HoaDonRepository hoaDonRepository, BankInfoRepository bankInfoRepository, com.trohub.backend.repository.PhieuThuRepository phieuThuRepository, HopDongRepository hopDongRepository, AccessScope accessScope) {
+    public BillingAdminController(ChiSoRepository chiSoRepository, BillingService billingService, com.trohub.backend.repository.DonGiaRepository donGiaRepository, com.trohub.backend.repository.HoaDonRepository hoaDonRepository, BankInfoRepository bankInfoRepository, com.trohub.backend.repository.PhieuThuRepository phieuThuRepository, HopDongRepository hopDongRepository, AccessScope accessScope, UploadProperties uploadProperties) {
         this.chiSoRepository = chiSoRepository;
         this.billingService = billingService;
         this.donGiaRepository = donGiaRepository;
@@ -50,6 +52,7 @@ public class BillingAdminController {
         this.phieuThuRepository = phieuThuRepository;
         this.hopDongRepository = hopDongRepository;
         this.accessScope = accessScope;
+        this.uploadProperties = uploadProperties;
     }
 
     @PreAuthorize("hasAnyAuthority('ROLE_ADMIN','ROLE_LANDLORD')")
@@ -215,14 +218,17 @@ public class BillingAdminController {
 
         try {
             // save to disk under uploads/bank
-            java.nio.file.Path uploadsRoot = java.nio.file.Paths.get("uploads", "bank");
+            java.nio.file.Path uploadsRoot = java.nio.file.Paths.get(uploadProperties.getBaseDir(), "bank");
             java.nio.file.Files.createDirectories(uploadsRoot);
             String ext = "";
             String original = file.getOriginalFilename();
             if (original != null && original.contains(".")) {
                 ext = original.substring(original.lastIndexOf('.'));
             }
-            String filename = java.time.LocalDateTime.now().format(java.time.format.DateTimeFormatter.ofPattern("yyyyMMddHHmmss")) + "-" + java.util.UUID.randomUUID() + ext;
+            String filename = java.time.LocalDateTime.now().format(java.time.format.DateTimeFormatter.ofPattern("yyyyMMddHHmmss"))
+                    + "-"
+                    + java.util.UUID.randomUUID()
+                    + ext.replaceAll("[^a-zA-Z0-9.]", "");
             java.nio.file.Path target = uploadsRoot.resolve(filename);
             try (java.io.InputStream in = file.getInputStream()) {
                 java.nio.file.Files.copy(in, target, java.nio.file.StandardCopyOption.REPLACE_EXISTING);

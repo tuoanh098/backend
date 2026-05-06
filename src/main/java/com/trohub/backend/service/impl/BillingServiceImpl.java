@@ -66,14 +66,13 @@ public class BillingServiceImpl implements BillingService {
     @Override
     @Async
     public java.util.concurrent.CompletableFuture<Void> generateMonthlyBillsAsync(int year, int month) {
-        return java.util.concurrent.CompletableFuture.runAsync(() -> {
-            try {
-                generateMonthlyBills(year, month);
-            } catch (Exception ex) {
-                // log via ServiceUtils by wrapping
-                ServiceUtils.exec(() -> { throw ex; }, "async generate monthly bills for " + year + "-" + month);
-            }
-        });
+        try {
+            generateMonthlyBills(year, month);
+            return java.util.concurrent.CompletableFuture.completedFuture(null);
+        } catch (Exception ex) {
+            ServiceUtils.exec(() -> { throw ex; }, "async generate monthly bills for " + year + "-" + month);
+            return java.util.concurrent.CompletableFuture.failedFuture(ex);
+        }
     }
 
     private List<InvoiceDto> doGenerateMonthlyBills(int year, int month) {
@@ -122,6 +121,7 @@ public class BillingServiceImpl implements BillingService {
             return enrichInvoiceDto(BillingMapper.toDto(existing.get(0)));
         }
         HoaDon hoaDon = HoaDon.builder()
+                .invoiceNumber(buildInvoiceNumber(tenantId, year, month))
                 .tenantId(tenantId)
                 .periodYear(year)
                 .periodMonth(month)
@@ -160,6 +160,7 @@ public class BillingServiceImpl implements BillingService {
         if (readings == null) readings = java.util.List.of();
 
         HoaDon hoaDon = HoaDon.builder()
+                .invoiceNumber(buildInvoiceNumber(tenantId, year, month))
                 .tenantId(tenantId)
                 .periodYear(year)
                 .periodMonth(month)
@@ -417,6 +418,9 @@ public class BillingServiceImpl implements BillingService {
 
     private InvoiceDto enrichInvoiceDto(InvoiceDto dto) {
         if (dto == null || dto.getTenantId() == null) return dto;
+        if (dto.getInvoiceNumber() == null || dto.getInvoiceNumber().isBlank()) {
+            dto.setInvoiceNumber(buildInvoiceNumber(dto.getTenantId(), safeInt(dto.getPeriodYear()), safeInt(dto.getPeriodMonth())));
+        }
         nguoiThueRepository.findById(dto.getTenantId()).ifPresent(tenant -> {
             dto.setTenantName(tenant.getHoTen());
             dto.setTenantPhone(tenant.getSdt());
@@ -456,6 +460,10 @@ public class BillingServiceImpl implements BillingService {
 
     private int safeInt(Integer value) {
         return value == null ? 0 : value;
+    }
+
+    private String buildInvoiceNumber(Long tenantId, int year, int month) {
+        return String.format(java.util.Locale.US, "HD-%04d%02d-T%s", year, month, tenantId == null ? "NA" : tenantId);
     }
 }
 

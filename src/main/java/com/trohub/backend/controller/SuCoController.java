@@ -9,6 +9,7 @@ import org.springframework.web.bind.annotation.*;
 
 import java.net.URI;
 import java.util.List;
+import java.util.Set;
 
 @RestController
 @RequestMapping("/api/incidents")
@@ -37,9 +38,11 @@ public class SuCoController {
     @PreAuthorize("hasAnyAuthority('ROLE_USER','ROLE_BILLING_STAFF','ROLE_ADMIN','ROLE_LANDLORD')")
     @GetMapping
     public ResponseEntity<List<SuCoDto>> listAll() {
+        Long tenantId = accessScope.isTenant() ? accessScope.currentTenantIdOrDeny() : null;
+        Set<Long> visibleRoomIds = accessScope.visibleRoomIds();
         return ResponseEntity.ok(suCoService.listAll().stream()
-                .filter(item -> !accessScope.isTenant() || accessScope.currentTenantIdOrDeny().equals(item.getReportedBy()))
-                .filter(item -> accessScope.canAccessRoom(item.getPhongId()))
+                .filter(item -> tenantId == null || tenantId.equals(item.getReportedBy()))
+                .filter(item -> item.getPhongId() != null && visibleRoomIds.contains(item.getPhongId()))
                 .toList());
     }
 

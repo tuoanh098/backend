@@ -10,6 +10,7 @@ import org.springframework.web.bind.annotation.*;
 import java.net.URI;
 import java.util.List;
 import java.util.Locale;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 @RestController
@@ -34,8 +35,9 @@ public class PhongController {
 
     @GetMapping
     public ResponseEntity<List<PhongDto>> listAll(@RequestParam(value = "q", required = false) String q) {
+        Set<Long> visibleRoomIds = accessScope.visibleRoomIds();
         List<PhongDto> all = phongService.listAll().stream()
-                .filter(item -> accessScope.canAccessRoom(item.getId()))
+                .filter(item -> item.getId() != null && visibleRoomIds.contains(item.getId()))
                 .collect(Collectors.toList());
         if (q == null || q.trim().isEmpty()) {
             return ResponseEntity.ok(all);

@@ -121,11 +121,11 @@ public class SuCoServiceImpl implements SuCoService {
         Path baseDir = Paths.get(uploadProperties.getBaseDir(), uploadProperties.getIncidentsDir(), String.valueOf(id));
         try {
             Files.createDirectories(baseDir);
-            String filename = UUID.randomUUID().toString() + "_" + file.getOriginalFilename();
+            String filename = UUID.randomUUID().toString() + "_" + sanitizeFilename(file.getOriginalFilename());
             Path target = baseDir.resolve(filename);
             Files.copy(file.getInputStream(), target);
 
-            String relPath = "/" + uploadProperties.getBaseDir() + "/" + uploadProperties.getIncidentsDir() + "/" + id + "/" + filename;
+            String relPath = "/uploads/" + uploadProperties.getIncidentsDir() + "/" + id + "/" + filename;
             String existing = exist.getImagePaths();
             String updated;
             if (existing == null || existing.isBlank()) updated = relPath;
@@ -136,6 +136,11 @@ public class SuCoServiceImpl implements SuCoService {
         } catch (java.io.IOException e) {
             throw new RuntimeException("Failed to store uploaded file: " + e.getMessage(), e);
         }
+    }
+
+    private String sanitizeFilename(String original) {
+        String name = original == null || original.isBlank() ? "incident.jpg" : original.trim();
+        return name.replaceAll("[^a-zA-Z0-9._-]", "_");
     }
 }
 

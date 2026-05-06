@@ -64,8 +64,9 @@ public class KhachVaoRaController {
     @PreAuthorize("hasAnyAuthority('ROLE_ADMIN','ROLE_LANDLORD','ROLE_USER')")
     @GetMapping
     public ResponseEntity<List<KhachVaoRaDto>> listAll() {
+        Set<Long> visibleRoomIds = accessScope.visibleRoomIds();
         return ResponseEntity.ok(khachVaoRaService.listAll().stream()
-                .filter(item -> accessScope.canAccessRoom(item.getPhongId()))
+                .filter(item -> item.getPhongId() != null && visibleRoomIds.contains(item.getPhongId()))
                 .toList());
     }
 
@@ -98,12 +99,18 @@ public class KhachVaoRaController {
         return ResponseEntity.ok(dto);
     }
 
-    @PreAuthorize("hasAnyAuthority('ROLE_ADMIN','ROLE_LANDLORD')")
+    @PreAuthorize("hasAnyAuthority('ROLE_ADMIN','ROLE_LANDLORD','ROLE_USER')")
     @PutMapping("/{id}")
     public ResponseEntity<KhachVaoRaDto> update(@PathVariable Long id, @jakarta.validation.Valid @RequestBody KhachVaoRaDto dto) {
         KhachVaoRaDto existing = khachVaoRaService.getById(id);
         accessScope.denyUnlessRoom(existing.getPhongId());
         accessScope.denyUnlessRoom(dto.getPhongId());
+        if (accessScope.isTenant()) {
+            String status = existing.getApprovalStatus() == null ? "" : existing.getApprovalStatus().trim();
+            if (!"NEED_INFO".equalsIgnoreCase(status) && !"PENDING".equalsIgnoreCase(status)) {
+                throw new org.springframework.security.access.AccessDeniedException("Tenant can only update pending or need-info guest entries");
+            }
+        }
         return ResponseEntity.ok(khachVaoRaService.update(id, dto));
     }
 
@@ -139,6 +146,17 @@ public class KhachVaoRaController {
         accessScope.denyUnlessRoom(existing.getPhongId());
         String note = req == null ? null : req.getNote();
         return ResponseEntity.ok(khachVaoRaService.requestInfo(id, note));
+    }
+
+    @PreAuthorize("hasAnyAuthority('ROLE_ADMIN','ROLE_LANDLORD','ROLE_USER')")
+    @PostMapping(path = "/{id}/attachments", consumes = "multipart/form-data")
+    public ResponseEntity<KhachVaoRaDto> uploadAttachment(
+            @PathVariable Long id,
+            @RequestParam("file") org.springframework.web.multipart.MultipartFile file
+    ) {
+        KhachVaoRaDto existing = khachVaoRaService.getById(id);
+        accessScope.denyUnlessRoom(existing.getPhongId());
+        return ResponseEntity.ok(khachVaoRaService.addAttachment(id, file));
     }
 }
 

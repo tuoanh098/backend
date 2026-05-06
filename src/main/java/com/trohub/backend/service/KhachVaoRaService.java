@@ -1,6 +1,7 @@
 package com.trohub.backend.service;
 
 import com.trohub.backend.dto.KhachVaoRaDto;
+import org.springframework.web.multipart.MultipartFile;
 
 import java.util.List;
 
@@ -13,5 +14,6 @@ public interface KhachVaoRaService {
     KhachVaoRaDto approve(Long id);
     KhachVaoRaDto reject(Long id);
     KhachVaoRaDto requestInfo(Long id, String note);
+    KhachVaoRaDto addAttachment(Long id, MultipartFile file);
 }
 

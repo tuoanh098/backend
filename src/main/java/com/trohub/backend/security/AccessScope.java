@@ -103,6 +103,22 @@ public class AccessScope {
         return Collections.emptySet();
     }
 
+    public Set<Long> visibleRoomIds() {
+        Optional<NguoiThue> tenant = currentTenant();
+        if (tenant.isPresent() && tenant.get().getSophong() != null && isTenant() && !isAdminOrLandlord() && !hasRole("ROLE_BILLING_STAFF")) {
+            return Set.of(tenant.get().getSophong());
+        }
+
+        Set<Long> buildingIds = visibleBuildingIds();
+        if (buildingIds.isEmpty()) {
+            return Collections.emptySet();
+        }
+        return phongRepository.findAllByToaNhaIdIn(buildingIds).stream()
+                .map(Phong::getId)
+                .filter(id -> id != null)
+                .collect(Collectors.toCollection(LinkedHashSet::new));
+    }
+
     public Set<Long> visibleLandlordIds() {
         Optional<Long> landlordId = currentLandlordId();
         if (landlordId.isPresent()) {

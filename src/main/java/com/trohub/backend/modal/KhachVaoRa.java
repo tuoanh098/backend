@@ -35,6 +35,9 @@ public class KhachVaoRa {
     @Column(name = "approval_status")
     private String approvalStatus; // PENDING, APPROVED, REJECTED
 
+    @Column(name = "image_paths", columnDefinition = "TEXT")
+    private String imagePaths; // comma-separated paths
+
     @PrePersist
     public void prePersist() {
         if (timestamp == null) timestamp = LocalDateTime.now();

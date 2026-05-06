@@ -16,6 +16,7 @@ public class KhachVaoRaMapper {
                 .timestamp(e.getTimestamp())
                 .ghiChu(e.getGhiChu())
                 .approvalStatus(e.getApprovalStatus())
+                .imagePaths(toList(e.getImagePaths()))
                 .build();
     }
 
@@ -31,7 +32,16 @@ public class KhachVaoRaMapper {
                 .timestamp(dto.getTimestamp())
                 .ghiChu(dto.getGhiChu())
                 .approvalStatus(dto.getApprovalStatus())
+                .imagePaths(dto.getImagePaths() == null ? null : String.join(",", dto.getImagePaths()))
                 .build();
+    }
+
+    private static java.util.List<String> toList(String raw) {
+        if (raw == null || raw.isBlank()) return java.util.List.of();
+        return java.util.Arrays.stream(raw.split(","))
+                .map(String::trim)
+                .filter(s -> !s.isBlank())
+                .toList();
     }
 }
 

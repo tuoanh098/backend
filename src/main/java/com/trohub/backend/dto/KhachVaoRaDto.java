@@ -23,7 +23,7 @@ public class KhachVaoRaDto {
     @Size(max = 64, message = "cmnd must be at most 64 characters")
     private String cmnd;
 
-    @Pattern(regexp = "^[0-9+\\- ]{7,20}$", message = "sdt must contain only digits, spaces, + or - and be 7-20 chars")
+    @Pattern(regexp = "^$|^[0-9+\\- ]{7,20}$", message = "sdt must contain only digits, spaces, + or - and be 7-20 chars")
     private String sdt;
 
     @NotNull(message = "phongId is required")
@@ -33,5 +33,6 @@ public class KhachVaoRaDto {
     private LocalDateTime timestamp;
     private String ghiChu;
     private String approvalStatus;
+    private java.util.List<String> imagePaths;
 }
 
